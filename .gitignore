@@ -1,2 +1,6 @@
 curl.env
 .idea
+*.csv
+*.zip
+
+
