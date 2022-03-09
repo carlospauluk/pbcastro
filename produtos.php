@@ -118,7 +118,7 @@ try {
         $postData = [
             'tipoArquivo' => 'est_produtos_csv',
             'filename' => 'produtos.zip',
-            'substitutivo' => true,
+            'substitutivo' => false, // pois só envia os novos
             'file' => $encoded,
         ];
         curl_setopt($ch, CURLOPT_POSTFIELDS, $postData);
