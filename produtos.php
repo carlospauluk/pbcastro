@@ -15,6 +15,16 @@ $dbdatabase = $props['db.database.' . $ambiente];
 $dbuser = $props['db.user.' . $ambiente];
 $dbpw = $props['db.pw.' . $ambiente];
 
+$fUltimoCsv = @fopen('produtos.enviados.csv', 'r');
+$arrJaEnviados = [];
+if ($fUltimoCsv) {
+    while (($data = fgetcsv($fUltimoCsv)) !== FALSE) {
+        if ($data[0] === 'erp_codigo') continue; // pula a primeira linha
+        $arrJaEnviados[$data[0]] = true; // aqui só para constar que já tem o código
+    }
+    fclose($fUltimoCsv);
+}
+
 
 $sql = <<<EOT
 select 
@@ -26,6 +36,7 @@ select
     p.sub_grupo as subgrupo_codigo, 
     sg.descricao as subgrupo_nome, 
     p.unidade, 
+    p.ncm,
     p.custo as preco_custo, 
     p.venda as preco_tabela,
     f.codigo as fornecedor_codigo,
@@ -43,7 +54,9 @@ EOT;
 mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 $mysqli = new mysqli($dbhost, $dbuser, $dbpw, $dbdatabase);
 
-$cfile = fopen('produtos.csv', 'w');
+
+$cfile_aEnviar = fopen('produtos.enviar.csv', 'w');
+$cfile_jaEnviados = fopen('produtos.enviados.csv', 'a');
 
 try {
     $mysqli->set_charset('utf8mb4');
@@ -51,67 +64,82 @@ try {
     $rs = $mysqli->query($sql);
     $gerouCabecalho = false;
 
+    $qtdeParaExportar = 0;
     while ($r = $rs->fetch_assoc()) {
+        if ($arrJaEnviados[$r['erp_codigo']] ?? false) {
+            continue; // pula os já exportados
+        }
         if (!$gerouCabecalho) {
             $campos = array_keys($r);
-            fputcsv($cfile, $campos);
+            $campos[] = 'EAN';
+            fputcsv($cfile_aEnviar, $campos);
             $gerouCabecalho = true;
         }
-        fputcsv($cfile, $r);
+        $rEan = $mysqli->query('SELECT cod_barra FROM produto_cod_barra WHERE produto = ' . $r['erp_codigo'] . ' ORDER BY alteracao DESC LIMIT 1')->fetch_assoc();
+        $r['ean'] = $rEan['cod_barra'] ?? '';
+        $qtdeParaExportar++;
+        fputcsv($cfile_aEnviar, $r);
+        fputcsv($cfile_jaEnviados, $r);
     }
-    fclose($cfile);
+    fclose($cfile_aEnviar);
+    fclose($cfile_jaEnviados);
 
-    $zip = new ZipArchive();
-    $filename = "./produtos.zip";
+    if ($qtdeParaExportar > 0) {
 
-    if ($zip->open($filename, ZipArchive::CREATE) !== TRUE) {
-        exit("cannot open <$filename>\n");
-    }
+        $zip = new ZipArchive();
+        $filename = "./produtos.zip";
 
-    $zip->addFile("produtos.csv");
-    $zip->close();
+        if ($zip->open($filename, ZipArchive::CREATE) !== TRUE) {
+            exit("cannot open <$filename>\n");
+        }
+
+        $zip->addFile("produtos.enviar.csv");
+        $zip->close();
 
 
-    $ch = curl_init();
+        $ch = curl_init();
 
-    if ($log) {
-        curl_setopt($ch, CURLOPT_VERBOSE, true);
-        curl_setopt($ch, CURLINFO_HEADER_OUT, true);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_HEADER, true);
-    }
-    if ($curloptCainfo = ($props['CURLOPT_CAINFO.' . $ambiente] ?? null)) {
-        curl_setopt($ch, CURLOPT_CAINFO, $curloptCainfo);
-    }
-    curl_setopt($ch, CURLOPT_URL, $endpoint);
-    curl_setopt($ch, CURLOPT_POST, 1);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, ['X-Authorization: Bearer ' . $token]);
+        if ($log) {
+            curl_setopt($ch, CURLOPT_VERBOSE, true);
+            curl_setopt($ch, CURLINFO_HEADER_OUT, true);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_HEADER, true);
+        }
+        if ($curloptCainfo = ($props['CURLOPT_CAINFO.' . $ambiente] ?? null)) {
+            curl_setopt($ch, CURLOPT_CAINFO, $curloptCainfo);
+        }
+        curl_setopt($ch, CURLOPT_URL, $endpoint);
+        curl_setopt($ch, CURLOPT_POST, 1);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, ['X-Authorization: Bearer ' . $token]);
 
-    $encoded = base64_encode(gzencode(file_get_contents('produtos.zip')));
+        $encoded = base64_encode(gzencode(file_get_contents('produtos.zip')));
 
-    //Create a POST array with the file in it
-    $postData = [
-        'tipoArquivo' => 'est_produtos_csv',
-        'filename' => 'produtos.zip',
-        'substitutivo' => true,
-        'file' => $encoded,
-    ];
-    curl_setopt($ch, CURLOPT_POSTFIELDS, $postData);
+        //Create a POST array with the file in it
+        $postData = [
+            'tipoArquivo' => 'est_produtos_csv',
+            'filename' => 'produtos.zip',
+            'substitutivo' => true,
+            'file' => $encoded,
+        ];
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $postData);
 
-    echo 'Executando...' . PHP_EOL;
+        echo 'Executando...' . PHP_EOL;
 
-    // Execute the request
-    $response = curl_exec($ch);
+        // Execute the request
+        $response = curl_exec($ch);
 
-    if ($log) {
-        $curlInfo = curl_getinfo($ch);
-        print_r($curlInfo);
-    }
+        if ($log) {
+            $curlInfo = curl_getinfo($ch);
+            print_r($curlInfo);
+        }
 
-    if ($response) {
-        print_r($response);
+        if ($response) {
+            print_r($response);
+        } else {
+            echo 'Não enviado.'; // CASO CAIA AQUI DIRETO DEPOIS DE PRINTAR O print_r($curlInfo), VERIFIQUE O CERTIFICADO
+        }
     } else {
-        echo 'Não enviado.'; // CASO CAIA AQUI DIRETO DEPOIS DE PRINTAR O print_r($curlInfo), VERIFIQUE O CERTIFICADO
+        echo 'Nada para exportar';
     }
 
     echo PHP_EOL;
