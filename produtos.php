@@ -59,7 +59,7 @@ $cfile_aEnviar = fopen('produtos.enviar.csv', 'w');
 $cfile_jaEnviados = fopen('produtos.enviados.csv', 'a');
 
 try {
-    $mysqli->set_charset('utf8mb4');
+    $mysqli->set_charset('utf8');
 
     $rs = $mysqli->query($sql);
     $gerouCabecalho = false;
@@ -136,6 +136,7 @@ try {
         if ($response) {
             print_r($response);
         } else {
+            print_r(curl_error($ch));
             echo 'Não enviado.'; // CASO CAIA AQUI DIRETO DEPOIS DE PRINTAR O print_r($curlInfo), VERIFIQUE O CERTIFICADO
         }
     } else {

@@ -16,7 +16,7 @@ $dbuser = $props['db.user.' . $ambiente];
 $dbpw = $props['db.pw.' . $ambiente];
 
 
-$fUltimoCsv = @fopen('produtosSaldos.csv', 'r');
+$fUltimoCsv = @fopen('produtosPrecos.csv', 'r');
 $arrUltimoCsv = [];
 if ($fUltimoCsv) {
     while (($data = fgetcsv($fUltimoCsv)) !== FALSE) {
@@ -27,24 +27,23 @@ if ($fUltimoCsv) {
 }
 
 
-
 $sql = <<<EOT
 select 
-    estoque.produto as erp_codigo,
-    estoque.estoque as saldo 
-from
-    estoque, produto
-where
-    produto.codigo = estoque.produto and
-    estoque.filial = 1
-order by produto  
+    codigo, 
+    venda, 
+    (venda * (1 - desconto/200)) as venda_com_desconto,
+    promocao, 
+    e_commerce_venda 
+from 
+    produto 
+order by codigo  
 EOT;
 
 mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 $mysqli = new mysqli($dbhost, $dbuser, $dbpw, $dbdatabase);
 
-$cfile_produtoSaldos = fopen('produtosSaldos.csv', 'w');
-$cfile_produtosSaldos_diff = fopen('produtosSaldos_diff.csv', 'w');
+$cfile_produtoPrecos = fopen('produtosPrecos.csv', 'w');
+$cfile_produtosPrecos_diff = fopen('produtosPrecos_diff.csv', 'w');
 
 try {
     $mysqli->set_charset('utf8');
@@ -52,30 +51,38 @@ try {
     $rs = $mysqli->query($sql);
     $gerouCabecalho = false;
 
-    while ($r = $rs->fetch_assoc()) {
-        if (!$gerouCabecalho) {
-            $campos = array_keys($r);
-            fputcsv($cfile_produtoSaldos, $campos);
-            fputcsv($cfile_produtosSaldos_diff, $campos);
-            $gerouCabecalho = true;
+    $campos = ['erp_codigo', 'preco'];
+    fputcsv($cfile_produtoPrecos, $campos);
+    fputcsv($cfile_produtosPrecos_diff, $campos);
+
+    while ($t = $rs->fetch_assoc()) {
+        $preco =
+            (float)$t['e_commerce_venda'] ?:
+                (float)$t['promocao'] ?:
+                    (float)$t['venda_com_desconto'] ?:
+                        (float)$t['venda'];
+        $preco = bcmul($preco, 1, 2);
+        $r = [
+            $t['codigo'],
+            $preco,
+        ];
+        if ($preco !== ($arrUltimoCsv[$t['codigo']] ?? -999999)) {
+            fputcsv($cfile_produtosPrecos_diff, $r);
         }
-        if ($r['saldo'] !== ($arrUltimoCsv[$r['erp_codigo']] ?? -999999)) {
-            fputcsv($cfile_produtosSaldos_diff, $r);
-        }
-        fputcsv($cfile_produtoSaldos, $r);
+        fputcsv($cfile_produtoPrecos, $r);
     }
-    fclose($cfile_produtoSaldos);
-    fclose($cfile_produtosSaldos_diff);
+    fclose($cfile_produtoPrecos);
+    fclose($cfile_produtosPrecos_diff);
 
 
     $zip = new ZipArchive();
-    $filename = "./produtosSaldos.zip";
+    $filename = "./produtosPrecos.zip";
 
     if ($zip->open($filename, ZipArchive::CREATE) !== TRUE) {
         exit("cannot open <$filename>\n");
     }
 
-    $zip->addFile("produtosSaldos_diff.csv");
+    $zip->addFile("produtosPrecos_diff.csv");
     $zip->close();
 
 
@@ -94,12 +101,12 @@ try {
     curl_setopt($ch, CURLOPT_POST, 1);
     curl_setopt($ch, CURLOPT_HTTPHEADER, ['X-Authorization: Bearer ' . $token]);
 
-    $encoded = base64_encode(gzencode(file_get_contents('produtosSaldos.zip')));
+    $encoded = base64_encode(gzencode(file_get_contents('produtosPrecos.zip')));
 
     //Create a POST array with the file in it
     $postData = [
-        'tipoArquivo' => 'est_produtos_saldos_csv',
-        'filename' => 'produtosSaldos.zip',
+        'tipoArquivo' => 'est_produtos_precos_csv',
+        'filename' => 'produtosPrecos.zip',
         'substitutivo' => false, // não pode ser, pois só envia o diff, então pode passar batido algum
         'file' => $encoded,
     ];
