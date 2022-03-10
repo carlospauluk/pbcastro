@@ -30,7 +30,8 @@ if ($fUltimoCsv) {
 $sql = <<<EOT
 select 
     codigo, 
-    venda, 
+    venda,
+    custo, 
     (venda * (1 - desconto/200)) as venda_com_desconto,
     promocao, 
     e_commerce_venda 
@@ -51,7 +52,7 @@ try {
     $rs = $mysqli->query($sql);
     $gerouCabecalho = false;
 
-    $campos = ['erp_codigo', 'preco'];
+    $campos = ['erp_codigo', 'preco_ecommerce', 'preco_tabela', 'preco_custo'];
     fputcsv($cfile_produtoPrecos, $campos);
     fputcsv($cfile_produtosPrecos_diff, $campos);
 
@@ -65,6 +66,8 @@ try {
         $r = [
             $t['codigo'],
             $preco,
+            (float)$t['venda'],
+            (float)$t['custo'],
         ];
         if ($preco !== ($arrUltimoCsv[$t['codigo']] ?? -999999)) {
             fputcsv($cfile_produtosPrecos_diff, $r);
