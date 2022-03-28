@@ -21,7 +21,7 @@ $arrUltimoCsv = [];
 if ($fUltimoCsv) {
     while (($data = fgetcsv($fUltimoCsv)) !== FALSE) {
         if ($data[0] === 'erp_codigo') continue;
-        $arrUltimoCsv[$data[0]] = $data[1];
+        $arrUltimoCsv[$data[0]] = $data;
     }
     fclose($fUltimoCsv);
 }
@@ -32,7 +32,7 @@ select
     codigo, 
     venda,
     custo, 
-    (venda * (1 - desconto/200)) as venda_com_desconto,
+    (venda * (1 - desconto/100)) as venda_com_desconto,
     promocao, 
     e_commerce_venda 
 from 
@@ -52,28 +52,39 @@ try {
     $rs = $mysqli->query($sql);
     $gerouCabecalho = false;
 
-    $campos = ['erp_codigo', 'preco_ecommerce', 'preco_tabela', 'preco_custo'];
+    $campos = ['erp_codigo', 'preco_ecommerce', 'preco_tabela', 'preco_custo', 'preco_venda_com_desconto', 'preco_promocao'];
     fputcsv($cfile_produtoPrecos, $campos);
     fputcsv($cfile_produtosPrecos_diff, $campos);
 
     while ($t = $rs->fetch_assoc()) {
-        $preco =
-            (float)$t['e_commerce_venda'] ?:
-                (float)$t['promocao'] ?:
-                    (float)$t['venda_com_desconto'] ?:
-                        (float)$t['venda'];
-        $preco = bcmul($preco, 1, 2);
+
+        $preco_tabela = (float)bcmul($t['venda'], 1, 2);
+        $preco_custo = (float)bcmul($t['custo'], 1, 2);
+        $preco_venda_com_desconto = (float)bcmul($t['venda_com_desconto'], 1, 2);
+        $preco_promocao = (float)bcmul($t['promocao'], 1, 2);
+        $preco_ecommerce = (float)bcmul($t['e_commerce_venda'], 1, 2);
+
         $r = [
             $t['codigo'],
-            $preco,
-            (float)$t['venda'],
-            (float)$t['custo'],
+            $preco_ecommerce,
+            $preco_tabela,
+            $preco_custo,
+            $preco_venda_com_desconto,
+            $preco_promocao,
         ];
-        if ($preco !== ($arrUltimoCsv[$t['codigo']] ?? -999999)) {
+
+        if (
+            $preco_ecommerce !== ($arrUltimoCsv[$t['codigo']]['preco_ecommerce'] ?? -999999) ||
+            $preco_tabela !== ($arrUltimoCsv[$t['codigo']]['preco_tabela'] ?? -999999) ||
+            $preco_custo !== ($arrUltimoCsv[$t['codigo']]['preco_custo'] ?? -999999) ||
+            $preco_venda_com_desconto !== ($arrUltimoCsv[$t['codigo']]['preco_venda_com_desconto'] ?? -999999) ||
+            $preco_promocao !== ($arrUltimoCsv[$t['codigo']]['preco_promocao'] ?? -999999)) {
             fputcsv($cfile_produtosPrecos_diff, $r);
         }
+
         fputcsv($cfile_produtoPrecos, $r);
     }
+
     fclose($cfile_produtoPrecos);
     fclose($cfile_produtosPrecos_diff);
 
